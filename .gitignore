@@ -1,0 +1,31 @@
+# 環境変数（シークレット情報を含むため必ずgit管理外にする）
+.env
+
+# データディレクトリ（大容量ファイル・生成物）
+data/raw/
+data/processed/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Node.js（該当する場合）
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# 実行時データ（SQLite DB など）
+data/

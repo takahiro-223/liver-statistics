@@ -1,0 +1,33 @@
+[project]
+name = "liver-statistics"
+version = "0.1.0"
+description = "MMOゲームのスクリーンショットから部族メンバーの活動を読み取りDBに記録する"
+requires-python = ">=3.12"
+dependencies = [
+    "opencv-python-headless",
+    "numpy",
+    "Pillow",
+    "pytesseract",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+liver-stats = "liver_statistics.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["liver_statistics*"]
+
+[tool.setuptools.package-data]
+liver_statistics = ["db/schema.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["src/test/src"]
+pythonpath = ["src"]
