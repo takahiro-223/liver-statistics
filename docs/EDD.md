@@ -6,7 +6,7 @@
 |---|---|
 | プロジェクト名 | liver-statistics |
 | 作成日 | 2026-11-22 |
-| 関連ドキュメント | [BRD](./BRD.md) / [PRD](./PRD.md) |
+| 関連ドキュメント | [BRD](./BRD.md)（4.6 ランキング表の作成）/ [PRD](./PRD.md)（US-08・4.6） |
 | 技術選定の記録 | [ADR-002 言語](./decisions/002_language_python.md) / [ADR-003 データストア](./decisions/003_datastore_sqlite.md) / [ADR-004 画像読み取り方式](./decisions/004_ocr_approach.md) |
 
 ---
@@ -49,6 +49,7 @@
 ```
 
 - `scripts/` の `evaluate_accuracy.py` / `build_digit_templates.py` は、`evaluation/`（正答率の測定・桁テンプレート作成）を呼ぶ補助ツールで、図の `pipeline.py` / `ocr/` を再利用する（取り込みの本線には含まれない）。
+- `ranking/`（ランキング表の作成）は `export/` と同様に `cli.py` から呼ばれ、`db/repository.py` を読み取り専用で使う（図では省略）。
 - 実行時には外部ネットワークへの通信を行わない（PRD セキュリティ要件）。OCR は Tesseract をローカルのサブプロセスとして呼び出す。外部へ接続するのはセットアップ時のみ（Tesseract・依存パッケージ・高精度モデルの学習データの取得。学習データはコミットを固定して SHA-256 を検証する）。
 - `pipeline.py` が取り込みの全工程を統合し、トランザクション境界を持つ。
 
@@ -93,9 +94,31 @@
   → export.csv_exporter : CSV（UTF-8 BOM 付き）としてファイルに書き出す
 ```
 
-### 3.4 性能（PRD 5 章「性能」への対応）
+### 3.4 ランキング作成（`liver-stats ranking`）
+
+```
+部族名 [+ 今回の記録日] + 出力先パス
+  → db.repository      : 部族を検索（未登録なら InputError）
+                         今回の記録日を決める
+                           指定なし: 部族の最新の記録日（データが1件も無ければ InputError）
+                           指定あり: その日のデータが無ければ InputError（近い日付への補正はしない）
+                         前回の記録日 = 今回より前の最新の記録日（無ければ None）
+                         今回・前回の各メンバーの記録（MemberSnapshot）を取得
+  → ranking.calc       : 4つのランキング（最高レベル・名誉・レベル上昇値・名誉上昇値）を算出
+                         前回なしのメンバー、要確認のメンバーも集計
+  → ranking.csv_writer : 12列のCSV（UTF-8 BOM 付き）としてファイルに書き出す
+  → 実行結果の表示（今回・前回の記録日、人数、前回なしの人数、要確認の警告）
+```
+
+- DB は読み取りのみで、書き込まない（トランザクションは不要）。スキーマの変更も無い。
+- 前回の記録は、`member_id` で今回の記録と突き合わせる。取り込み時にユーザ名・別名でメンバーが統合されているため、別名で統合済みのメンバーは同一メンバーとして扱われる。誤読名が別メンバーのまま（訂正前）なら「前回なし」になる（PRD 4.6）。
+- 「要確認」の警告は、ランキングの作成を妨げない。終了コードは 0。
+
+### 3.5 性能（PRD 5 章「性能」への対応）
 
 PRD の要件「1 部族（50 人、画像約 10 枚）の読み取りから登録までを数分以内」に対し、実測は **12 枚・36 人で約 9 秒**（名前を 2 モデルで読む設定。開発機での測定）で、要件を大きく下回る。支配的なコストは Tesseract の呼び出しで、名前 1 カードにつき 2 回（従来モデルと高精度モデル。別プロセスのため並列に実行）。数値は桁テンプレート照合のため Tesseract を呼ばない。DB への登録は 1 トランザクションで、時間にほとんど影響しない。高精度モデルが無い場合、名前の Tesseract 呼び出しは 1 回になる。
+
+ランキング表の作成（PRD 5 章: 1 部族 50 人で数秒以内）は、DB の読み取り 4 回程度（最新の記録日・前回の記録日・今回と前回の記録）と、50 人分の並べ替えだけで、OCR を使わない。数ミリ秒〜数十ミリ秒の見込みで、要件を大きく下回る見通し（実装後に実測して追記する）。
 
 ---
 
@@ -368,7 +391,27 @@ class Repository:
         """UpsertResult は inserted / overwritten / skipped のいずれか。"""
     def query_records(self, tribe: str, on_date: date | None = None, date_from: date | None = None,
                       date_to: date | None = None, member_key: str | None = None) -> list[RecordRow]: ...
+
+    # ランキング作成用（読み取り専用。3.4 参照）
+    def latest_record_date(self, tribe_id: int) -> date | None:
+        """部族の最新の記録日。記録が1件も無ければ None。"""
+    def has_records_on(self, tribe_id: int, on: date) -> bool: ...
+    def previous_record_date(self, tribe_id: int, before: date) -> date | None:
+        """before より前の最新の記録日。無ければ None。"""
+    def list_snapshots(self, tribe_id: int, on: date) -> list[MemberSnapshot]:
+        """指定した記録日の、部族の全メンバーの記録（member_records と members の結合）。"""
+
+@dataclass(frozen=True)
+class MemberSnapshot:
+    member_id: int
+    name: str            # 表示名（members.name）
+    name_key: str        # 正規化キー（同順位の並び替えに使う）
+    level: int | None    # 読み取れなかった場合は None
+    honor: int | None
+    needs_review: bool
 ```
+
+- ランキング用の問い合わせは、`member_records` と `members` を結合し、`members.tribe_id` と `record_date` で絞る。最新・前回の記録日は `MAX(record_date)`（前回は `record_date < ?` を付ける）。既存の `idx_member_records_date` で足りる。
 
 - 競合時の動作は、`(member_id, record_date)` の既存行を `SELECT` で確認し、無ければ `INSERT`、あれば `skip` は何もせず、`overwrite` は `UPDATE` する。単一プロセス・単一トランザクションで動くため競合しない。最終的な重複防止は `UNIQUE (member_id, record_date)` 制約が担保する。
 - トランザクションは `pipeline.py` で `with conn:` により管理する。
@@ -408,9 +451,83 @@ def export_csv(rows: list[RecordRow], out_path: Path) -> int:
 |---|---|---|
 | `liver-stats import` | `--dir`（必須）`--tribe`（必須）`--date`（任意、YYYY-MM-DD）`--on-conflict {skip,overwrite}`（既定 skip） | 0: 成功（失敗画像・カード未検出の画像があっても0。結果に表示。すべての画像で読み取れなかった場合は警告を表示）/ 1: 入力エラー / 2: 想定外エラー |
 | `liver-stats export` | `--tribe`（必須）`--date` または `--from`/`--to`、`--member`（任意）、`--out`（必須） | 同上 |
+| `liver-stats ranking` | `--tribe`（必須）`--date`（任意、YYYY-MM-DD。今回の記録日。省略時は部族の最新の記録日）、`--out`（必須） | 0: 成功（要確認の警告・前回なしがあっても0。結果に表示）/ 1: 入力エラー（未登録の部族、記録が無い、指定した記録日にデータが無い、`--out` の親フォルダが無い）/ 2: 想定外エラー |
 
 - `--date` と `--from`/`--to` の同時指定、`--out` の親ディレクトリが存在しない場合は入力エラーとする。
+- `ranking` の `--date` は、`export --date`（その日の全メンバーを出力）と意味が少し異なり、「今回の記録日」を指す（PRD 6 章）。
 - 出力結果の形式は PRD 6章の例に従う。
+
+### 5.9 `ranking/`（ランキング表の作成）
+
+`export/` と同様に、DB の記録を整形して CSV にする出力系のモジュール。ロジック（`calc.py`）、CSV の書き出し（`csv_writer.py`）、DB アクセスを含む統合（`service.py`）に分け、`calc.py` は DB・ファイルに触れない純粋な関数にする（テストしやすくするため）。
+
+```python
+# calc.py
+@dataclass(frozen=True)
+class RankEntry:
+    rank: int | None     # 順位。None は順位なし（CSV では空欄）
+    name: str            # 表示名
+    value: int | None    # None は値なし（CSV では「-」）
+
+@dataclass(frozen=True)
+class RankingTable:
+    current_date: date
+    previous_date: date | None      # 前回の記録日。無ければ None（初回）
+    level: list[RankEntry]          # 最高レベル
+    honor: list[RankEntry]          # 名誉
+    level_gain: list[RankEntry]     # レベル上昇値
+    honor_gain: list[RankEntry]     # 名誉上昇値
+    no_previous: list[str]          # 前回の記録が無いメンバーの表示名（前回の記録日が無い場合は空）
+    needs_review: list[str]         # 今回または前回の記録が要確認のメンバーの表示名
+
+def build_ranking(current: list[MemberSnapshot], previous: list[MemberSnapshot],
+                  current_date: date, previous_date: date | None) -> RankingTable: ...
+
+# csv_writer.py
+def write_ranking_csv(table: RankingTable, out_path: Path) -> int:
+    """メンバー数（データ行数）を返す。UTF-8 BOM 付き。出力先が既存の場合は上書きする。"""
+
+# service.py
+@dataclass(frozen=True)
+class RankingSummary:
+    current_date: date
+    previous_date: date | None
+    members: int
+    no_previous: list[str]
+    needs_review: list[str]
+
+def run_ranking(tribe: str, on_date: date | None, out_path: Path, cfg: Config) -> RankingSummary:
+    """3.4 のデータフロー。未登録の部族・記録が無い・指定した記録日にデータが無い場合は InputError。"""
+```
+
+**`build_ranking` の規則**（PRD 4.6）
+
+- 値: 最高レベル・名誉は今回の記録の `level`・`honor`。上昇値は、前回の記録（`member_id` が同じ）がある場合のみ「今回 − 前回」。前回の記録が無い、または今回・前回のどちらかの値が `None` の場合は `None`
+- 並び: 値の大きい順。`None` は末尾。同順位（同値）の並びは `name_key` の昇順（Python の文字列比較。コードポイント順で、日本語は五十音順とは限らない）。上昇値が負のメンバーは、0 より下に並ぶ（値の降順なので自然にそうなる）
+- 順位: 競技順位。`1 + 「自分より値が大きいメンバーの数」`（例: 1, 2, 2, 4）。値が `None` のメンバーは順位なし
+- 載せるメンバー: 今回の記録日にデータがあるメンバーのみ（前回にだけいるメンバーは載せない）
+- `no_previous`: 前回の記録日が存在する場合の、前回の記録が無いメンバー。前回の記録日が存在しない（初回）場合は空（全員が上昇値なしであることは `previous_date is None` で分かる）
+- `needs_review`: 今回の記録、または前回の記録（同じ `member_id`）の `needs_review` が真のメンバー
+
+**`write_ranking_csv` のレイアウト**（PRD 6 章）
+
+- 1 行目: 期間と「各種ランキング」の 1 セルのみ（例: `2026/11/16〜2026/11/23 各種ランキング`。前回が無い場合は `（前回なし）〜2026/11/23 各種ランキング`）。CSV では結合セルを表現できないため、1 つのセルに入れる
+- 2 行目: 見出し 12 列 `順位,ユーザー名,最高レベル,順位,ユーザー名,名誉,順位,ユーザー名,レベル上昇値,順位,ユーザー名,名誉上昇値`
+- 3 行目以降: 4 つのランキングを横に並べる。`rank` が `None` なら空欄、`value` が `None` なら `-`。4 つのリストの長さが異なる場合は、空欄で揃える
+- 日付は `YYYY/MM/DD`（運営者のイメージ図に合わせる。既存の CSV 出力の `YYYY-MM-DD` とは異なる）、見出しは「ユーザー名」（既存の CSV の「ユーザ名」とは異なる。PRD のフィードバック No.6）
+
+**エラーと警告**
+
+- `InputError`: 未登録の部族 / 部族に記録が 1 件も無い / 指定した記録日にデータが無い。`--out` の親フォルダの存在確認は、`cli.py`（`export` と同様）
+- 警告（`needs_review`）は、`cli.py` が `RankingSummary` から表示する。ランキングの作成と終了コードには影響しない
+
+**採用しなかった案**（EDD フィードバックの回答に基づく）
+
+- `export/csv_exporter.py` への同居: 2 時点の比較・順位付けのロジックを持つため、純粋な関数として分けた方がテストしやすい
+- 五十音順の同順位内の並び: 読み仮名の情報が無いため、決定的に並ぶコードポイント順とする
+- 12 列すべてに空セルを並べる先頭行: 見た目は変わらないため、1 セルとする
+- ユーザ名（表示名）での前回との突き合わせ: 取り込み時の統合（ユーザ名・別名）を活かし、`member_id` で行う
+- 警告時に別の終了コード（例: 3）を返す案: 取り込みの「失敗画像があっても 0」と同じ方針で、0 のままとする
 
 ---
 
@@ -484,8 +601,12 @@ liver-statistics/
 │   │   │   ├── connection.py
 │   │   │   ├── schema.sql
 │   │   │   └── repository.py
-│   │   └── export/
-│   │       └── csv_exporter.py
+│   │   ├── export/
+│   │   │   └── csv_exporter.py
+│   │   └── ranking/           # ランキング表の作成（5.9）
+│   │       ├── calc.py            # 順位・上昇値の算出（純粋な関数）
+│   │       ├── csv_writer.py      # 12列の CSV の書き出し
+│   │       └── service.py         # DB 読み取り + 算出 + 書き出しの統合
 │   └── test/                  # TEST_REGULATION.md に従う
 │       ├── TEST_POINT.md
 │       └── src/{unit,integration}/
@@ -514,4 +635,6 @@ liver-statistics/
 | Web 画面からの画像アップロード | `ingest/` に入力経路を追加、`pipeline.py` を再利用 |
 | 累計寄付値などの記録項目の追加 | `ocr/card_detector.py` に領域追加、`member_records` に列追加 |
 | 別名の登録コマンド | `members/` と `cli.py` に追加（現状は DB 直接操作） |
+| 他の項目のランキング（累計寄付値など） | `ranking/calc.py` に項目を追加し、`csv_writer.py` の列を拡張（記録項目の追加が前提） |
+| 複数週をまたぐ上昇幅（前回以外との比較）、過去の複数の週のランキングの一括再作成 | `ranking/service.py` で比較対象・今回の記録日を複数受け取る（`calc.py` は2時点の比較のため再利用できる） |
 | 複数管理者・外部公開 | 認証、DB を SQLite から RDBMS へ移行（ADR-003 を更新） |
