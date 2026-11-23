@@ -25,6 +25,7 @@ def test_image_without_cards_is_reported(cfg, blank_dir):
     s = run_import(blank_dir, "T", None, "skip", cfg, engine=NeverCalledEngine())
     assert s.images_no_cards == ["blank.png"] and s.images_failed == []
     assert s.inserted == 0
+    assert not cfg.db_path.exists()  # 登録するカードが無ければ DB に触れない（空の部族も作らない）
 
 
 def test_cli_warns_when_no_cards(cfg, blank_dir, monkeypatch, capsys):

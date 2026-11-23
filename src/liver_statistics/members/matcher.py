@@ -2,13 +2,9 @@
 from __future__ import annotations
 
 import difflib
-import unicodedata
 from dataclasses import dataclass
 
-
-def normalize_name(name: str) -> str:
-    """NFKC 正規化 → 空白除去 → casefold。"""
-    return "".join(unicodedata.normalize("NFKC", name).split()).casefold()
+from ..normalize import normalize_name  # noqa: F401 - 既存の import 先（matcher）との互換のため再公開
 
 
 @dataclass(frozen=True)

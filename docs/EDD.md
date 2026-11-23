@@ -74,7 +74,8 @@
 ```
 
 - 1枚の画像で例外が発生した場合は、その画像を失敗として記録して次の画像へ進む。
-- 例外は出なかったが、読み取れたカードが1枚も無い画像（アイコンを検出できない低解像度の画像、メンバー画面以外、名前がすべて空など）は、失敗とは別に「カード未検出」として記録し、ログ（WARNING）と実行結果で報告する。登録は妨げない。
+- 登録するカードが全画像で1枚も無い場合は、DB に触れない（空の部族も作らない）。
+- 例外は出なかったが、読み取れたカードが1枚も無い画像（アイコンを検出できない低解像度の画像、メンバー画面以外、名前がすべて空など）は、失敗とは別に「カード未検出」として記録し、実行結果で報告する（ログは DEBUG）。登録は妨げない。
 - DB への書き込みは、全画像の解析が終わった後に1トランザクションで行う。登録中に失敗した場合はロールバックし、部分的なデータを残さない。ただし画像単位の解析失敗は登録を妨げない（失敗画像として報告する）。
 
 ### 3.2 同一実行内の重複統合
@@ -197,11 +198,14 @@ class Config:
     tesseract_timeout_sec: float # Tesseract 1回の呼び出しのタイムアウト（既定 30 秒）
     number_ocr_lang: str         # 数値を Tesseract で読む際の言語（既定 "eng"）
     digit_max_distance: float    # 桁テンプレートとの距離がこの値のとき信頼度 0（既定 0.30）
+    tessdata_best_dir: Path | None  # 高精度モデルの置き場所（既定 assets/tessdata_best。無ければ None で1モデル）
+    name_disagree_confidence_cap: float  # 2モデルの名前が食い違ったときの信頼度の上限（既定 55）
     icons_dir: Path              # アイコン画像の置き場所（既定 assets/icons）
     digits_dir: Path             # 数値の桁テンプレートの置き場所（既定 assets/digits）
     layout: LayoutConfig         # 5.3 参照（アイコン高さ h を単位とする相対比率）
 
-def load_config() -> Config: ...
+def load_config(for_ocr: bool = True) -> Config: ...
+# for_ocr=False（export など OCR を使わないコマンド）では高精度モデルの学習データを検証せず None とする
 # LOG_LEVEL が DEBUG/INFO/WARNING/ERROR/CRITICAL 以外、数値設定が数値でない場合は InputError
 
 ```
@@ -267,6 +271,7 @@ class OcrEngine(Protocol):
 **`tesseract_engine.py`** — Tesseract 実装
 
 - 名前: グレースケールのまま（拡大・二値化はしない）周囲に白い余白を付け、`--psm 7`（1行）、言語 `jpn+eng`。二値化と拡大は細い字や濁点・半濁点を崩すため行わない（ADR-004 追記）
+- 名前の 2 モデル読み取り（ADR-004 追記）: `assets/tessdata_best/`（高精度モデル）に `OCR_LANG` の全言語の学習データがあれば、同じ領域を高精度モデルでも読む（前処理は濃淡の引き伸ばし。`--tessdata-dir` で学習データを指定）。`ocr/name_choice.choose_name(primary, secondary, disagree_cap)` が、信頼度が高い方を採用し、正規化後の名前が食い違うときは信頼度を `NAME_DISAGREE_CONFIDENCE_CAP` 以下にして「要確認」にする。学習データが無ければ従来の 1 モデルで読む。`TESSDATA_BEST_DIR` を明示して学習データが無い場合は `InputError`。2 つの Tesseract は別プロセスなので並列に呼ぶ。エンジン初期化時に、高精度モデルを使う場合は白い画像の試し読みで学習データが読めることを確認し、読めなければ `OcrEngineUnavailableError`（壊れた学習データが「全画像の失敗」に埋もれないようにする）。どちらのモードで読むかは初期化時に INFO ログで出す
 - 数値: `digit_reader`（桁テンプレート照合）で読む。テンプレートが無い・切り出せない場合のみ、前処理の後 `--psm 7`、`tessedit_char_whitelist=0123456789,` の Tesseract にフォールバックする（`read_number_tesseract`）
 - 信頼度は Tesseract が返す単語ごとの信頼度の最小値とする
 - Tesseract が見つからない場合は `OcrEngineUnavailableError`
@@ -316,6 +321,7 @@ def parse_card(name: OcrResult, level: OcrResult, honor: OcrResult, cfg: Config)
 ### 5.4 `members/matcher.py`
 
 ```python
+# normalize_name は normalize.py に置く（members/matcher.py からも参照できる）
 def normalize_name(name: str) -> str:
     """NFKC 正規化 → 前後・内部の空白除去 → 大文字小文字を区別しない形（casefold）に変換。"""
 
@@ -415,6 +421,8 @@ NAME_EDIT_MIN_LENGTH=3      # この文字数以上の名前は編集距離1で�
 TESSERACT_TIMEOUT_SEC=30    # Tesseract 1回の呼び出しのタイムアウト（秒）
 NUMBER_OCR_LANG=eng         # 数値を Tesseract で読む際の言語（フォールバック時）
 DIGIT_MAX_DISTANCE=0.30     # 桁テンプレートとの距離がこの値のとき信頼度0
+TESSDATA_BEST_DIR=assets/tessdata_best  # 任意。jpn/eng の高精度モデルがあれば名前を2モデルで読む
+NAME_DISAGREE_CONFIDENCE_CAP=55         # 2モデルが食い違ったときの信頼度の上限（CONFIDENCE_THRESHOLD より小さく。高精度モデルの有無にかかわらず検証する）
 ```
 
 `LOG_LEVEL` は CLI 起動時に `logging` へ反映する。設定値は型に加えて範囲も検証し（例: `DIGIT_MAX_DISTANCE` / `TESSERACT_TIMEOUT_SEC` は 0 より大きい、`*_THRESHOLD` は範囲内、`NAME_EDIT_MIN_LENGTH` は 1 以上の整数）、不正なら `InputError` とする。CLI は `load_config()` を 1 回だけ呼び、結果を各コマンドに渡す。`digit_reader.py` の `_SCALE` などの切り出し定数は、テンプレートの正規化（`GLYPH_SIZE`）と一体のアルゴリズム内部値のため設定化しない。
@@ -441,6 +449,7 @@ liver-statistics/
 │   │   ├── cli.py
 │   │   ├── config.py
 │   │   ├── errors.py          # 例外クラス
+│   │   ├── normalize.py       # 名前の正規化（members / ocr から共通利用）
 │   │   ├── pipeline.py
 │   │   ├── ingest/
 │   │   │   ├── scanner.py
@@ -452,6 +461,7 @@ liver-statistics/
 │   │   │   ├── card_detector.py   # 剣・星アイコンでカードを検出
 │   │   │   ├── engine.py
 │   │   │   ├── tesseract_engine.py
+│   │   │   ├── name_choice.py     # 2モデルの名前の結果から採用するものを決める
 │   │   │   ├── digit_reader.py    # 数値の桁テンプレート照合
 │   │   │   └── parser.py
 │   │   ├── members/

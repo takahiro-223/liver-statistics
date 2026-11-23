@@ -8,7 +8,7 @@ from pathlib import Path
 from ..config import Config
 from ..errors import InputError
 from ..ingest.scanner import list_images
-from ..members.matcher import normalize_name
+from ..normalize import normalize_name
 from ..ocr.card_detector import check_assets
 from ..ocr.engine import OcrEngine
 from ..pipeline import read_cards

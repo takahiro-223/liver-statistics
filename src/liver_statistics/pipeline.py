@@ -13,7 +13,8 @@ from .db.repository import OnConflict, RecordInput, Repository
 from .errors import ImageReadError
 from .ingest.captured_at import resolve_record_date
 from .ingest.scanner import list_images
-from .members.matcher import normalize_name, resolve_member
+from .members.matcher import resolve_member
+from .normalize import normalize_name
 from .ocr.card_detector import check_assets, detect_cards, load_image
 from .ocr.engine import OcrEngine
 from .ocr.parser import ParsedCard, parse_card
@@ -101,7 +102,7 @@ def run_import(
             rec_date, captured = resolve_record_date(path, record_date)
             cards = read_cards(path, engine, cfg)
             if not cards:
-                logger.warning("メンバーのカードを検出できませんでした: %s", path.name)
+                logger.debug("メンバーのカードを検出できませんでした: %s", path.name)  # 実行結果に表示するのでログは DEBUG
                 summary.images_no_cards.append(path.name)
             for card in cards:
                 extracted.append(_Extracted(rec_date, path, captured, card))
@@ -111,6 +112,9 @@ def run_import(
         except Exception as exc:  # noqa: BLE001 - 1枚の失敗で全体を止めず、失敗画像として報告する
             logger.warning("画像の処理中に想定外のエラー: %s: %s", path.name, exc)
             summary.images_failed.append(path.name)
+
+    if not extracted:
+        return summary  # 登録するカードが無ければ DB に触れない（空の部族も作らない）
 
     conn = connect(cfg.db_path)
     try:

@@ -91,6 +91,8 @@ sqlite3 data/liver_statistics.db "SELECT * FROM member_records WHERE needs_revie
 | `DIGIT_MAX_DISTANCE` | `0.30` | 桁テンプレートとの距離がこの値のとき信頼度0 |
 | `NUMBER_OCR_LANG` | `eng` | 数値を Tesseract で読む際の言語（フォールバック時） |
 | `LOG_LEVEL` | `INFO` | ログレベル（DEBUG/INFO/WARNING/ERROR/CRITICAL） |
+| `TESSDATA_BEST_DIR` | `assets/tessdata_best` | 高精度モデルの置き場所。jpn/eng があれば名前を2モデルで読み、食い違いを要確認にする（取得手順は `docs/setup.md`） |
+| `NAME_DISAGREE_CONFIDENCE_CAP` | `55` | 2モデルの名前が食い違ったときの信頼度の上限（`CONFIDENCE_THRESHOLD` より小さく） |
 | `TESSERACT_CMD` | （空） | Tesseract の場所。空なら PATH から探す |
 
 画面レイアウトに依存する値は `config/ocr_layout.toml` にあります。

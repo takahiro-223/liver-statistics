@@ -12,7 +12,7 @@ from .db.connection import connect
 from .db.repository import Repository
 from .errors import InputError, LiverStatisticsError
 from .export.csv_exporter import export_csv
-from .members.matcher import normalize_name
+from .normalize import normalize_name
 from .pipeline import run_import
 
 
@@ -88,7 +88,7 @@ def _cmd_export(args: argparse.Namespace, cfg: Config) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        cfg = load_config()  # 設定エラーは引数の検証より先に報告する
+        cfg = load_config(for_ocr=args.command == "import")  # 設定エラーは引数の検証より先に報告する
         logging.basicConfig(level=cfg.log_level, format="%(levelname)s %(message)s")
         return _cmd_import(args, cfg) if args.command == "import" else _cmd_export(args, cfg)
     except LiverStatisticsError as exc:

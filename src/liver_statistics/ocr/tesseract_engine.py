@@ -1,6 +1,11 @@
 """Tesseract による OCR 実装（ローカル完結）。"""
 from __future__ import annotations
 
+import logging
+import shlex
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
 import cv2
 import numpy as np
 import pytesseract
@@ -10,6 +15,9 @@ from ..config import Config
 from ..errors import OcrEngineUnavailableError
 from .digit_reader import load_templates, read_digits
 from .engine import OcrResult
+from .name_choice import choose_name
+
+logger = logging.getLogger(__name__)
 
 
 class TesseractEngine:
@@ -19,6 +27,8 @@ class TesseractEngine:
         self._timeout = cfg.tesseract_timeout_sec
         self._max_distance = cfg.digit_max_distance
         self._digits_dir = str(cfg.digits_dir)
+        self._best_dir = cfg.tessdata_best_dir
+        self._disagree_cap = cfg.name_disagree_confidence_cap
         if cfg.tesseract_cmd:
             pytesseract.pytesseract.tesseract_cmd = cfg.tesseract_cmd
         try:
@@ -27,6 +37,23 @@ class TesseractEngine:
             raise OcrEngineUnavailableError(
                 "Tesseract が見つかりません。`brew install tesseract tesseract-lang` で導入するか、"
                 "環境変数 TESSERACT_CMD を設定してください。"
+            ) from exc
+        if self._best_dir is not None:
+            self._check_best_model()
+            logger.info("名前の読み取り: 2 モデル（高精度モデル: %s）", self._best_dir)
+        else:
+            logger.info("名前の読み取り: 1 モデル（高精度モデルなし。取得手順は docs/setup.md）")
+
+    def _check_best_model(self) -> None:
+        """高精度モデルが実際に読めることを、白い画像での試し読みで確認する。
+
+        壊れた・空の学習データが「全画像の失敗」として埋もれないよう、画像処理の前に止める。
+        """
+        try:
+            self._run(np.full((40, 120), 255, np.uint8), self._lang, "", self._best_dir)
+        except (RuntimeError, OSError) as exc:  # pytesseract.TesseractError は RuntimeError の派生
+            raise OcrEngineUnavailableError(
+                f"高精度モデルの学習データを読み込めません（壊れている可能性）: {self._best_dir} ({exc})"
             ) from exc
 
     @staticmethod
@@ -45,7 +72,17 @@ class TesseractEngine:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         return cv2.copyMakeBorder(gray, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
 
-    def _run(self, prepared: np.ndarray, lang: str, extra: str) -> OcrResult:
+    @staticmethod
+    def _preprocess_name_stretched(image: np.ndarray) -> np.ndarray:
+        """高精度モデル用。文字が黒・背景が白に近づくよう、濃淡を引き伸ばす（拡大・二値化はしない）。"""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        low, high = np.percentile(gray, 2), np.percentile(gray, 90)
+        stretched = np.clip((gray - low) / max(high - low, 1.0) * 255, 0, 255).astype(np.uint8)
+        return cv2.copyMakeBorder(stretched, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
+
+    def _run(self, prepared: np.ndarray, lang: str, extra: str, tessdata_dir: Path | None = None) -> OcrResult:
+        if tessdata_dir is not None:
+            extra = f"{extra} --tessdata-dir {shlex.quote(str(tessdata_dir))}"
         data = pytesseract.image_to_data(
             prepared, lang=lang, config=f"--psm 7 {extra}",
             output_type=Output.DICT, timeout=self._timeout,
@@ -57,7 +94,16 @@ class TesseractEngine:
         return OcrResult(text=text.strip(), confidence=min(c for _, c in words))
 
     def read_name(self, image: np.ndarray) -> OcrResult:
-        return self._run(self._preprocess_name(image), self._lang, "")
+        """名前を読む。高精度モデルがあれば 2 モデルで読み、結果を突き合わせる（ADR-004 追記）。"""
+        if self._best_dir is None:
+            return self._run(self._preprocess_name(image), self._lang, "")
+        # 2 つの Tesseract は別プロセスで動くので、並列に呼ぶ
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            second = pool.submit(
+                self._run, self._preprocess_name_stretched(image), self._lang, "", self._best_dir
+            )
+            primary = self._run(self._preprocess_name(image), self._lang, "")
+            return choose_name(primary, second.result(), self._disagree_cap)
 
     def read_number(self, image: np.ndarray) -> OcrResult:
         """数値は桁テンプレート照合を優先し、使えない場合のみ Tesseract で読む。"""

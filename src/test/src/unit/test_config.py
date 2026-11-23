@@ -51,3 +51,49 @@ def test_dotenv_is_ignored_in_tests():
     # conftest の autouse フィクスチャが .env の読み込みを無効にしている
     from liver_statistics import config
     assert config.load_dotenv("x") is False
+
+
+def _make_best(tmp_path, langs=("jpn", "eng")):
+    for lang in langs:
+        (tmp_path / f"{lang}.traineddata").write_bytes(b"x")
+    return tmp_path
+
+
+def test_tessdata_best_enabled_when_files_exist(monkeypatch, tmp_path):
+    monkeypatch.setenv("TESSDATA_BEST_DIR", str(_make_best(tmp_path)))
+    assert load_config().tessdata_best_dir == tmp_path
+
+
+def test_tessdata_best_explicit_but_missing_is_error(monkeypatch, tmp_path):
+    monkeypatch.setenv("TESSDATA_BEST_DIR", str(_make_best(tmp_path, ("jpn",))))
+    with pytest.raises(InputError, match="eng.traineddata"):
+        load_config()
+
+
+def test_tessdata_best_default_location_missing_is_disabled(monkeypatch, tmp_path):
+    from liver_statistics import config
+    monkeypatch.delenv("TESSDATA_BEST_DIR", raising=False)
+    monkeypatch.setattr(config, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(config, "load_layout", lambda p: None)
+    assert config.load_config().tessdata_best_dir is None
+
+
+def test_disagree_cap_must_be_below_threshold(monkeypatch, tmp_path):
+    monkeypatch.setenv("TESSDATA_BEST_DIR", str(_make_best(tmp_path)))
+    monkeypatch.setenv("NAME_DISAGREE_CONFIDENCE_CAP", "60")
+    with pytest.raises(InputError, match="NAME_DISAGREE_CONFIDENCE_CAP"):
+        load_config()
+
+
+def test_for_ocr_false_skips_tessdata_check(monkeypatch, tmp_path):
+    monkeypatch.setenv("TESSDATA_BEST_DIR", str(_make_best(tmp_path, ("jpn",))))  # 不足していても
+    assert load_config(for_ocr=False).tessdata_best_dir is None
+
+
+def test_disagree_cap_validated_even_without_best_model(monkeypatch, tmp_path):
+    from liver_statistics import config
+    monkeypatch.delenv("TESSDATA_BEST_DIR", raising=False)
+    monkeypatch.setenv("NAME_DISAGREE_CONFIDENCE_CAP", "60")
+    monkeypatch.setattr(config, "_resolve_tessdata_best", lambda lang: None)
+    with pytest.raises(InputError, match="NAME_DISAGREE_CONFIDENCE_CAP"):
+        load_config()

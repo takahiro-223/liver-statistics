@@ -31,7 +31,8 @@ Thumbs.db
 data/
 
 # 画像データ・メンバー情報（スクリーンショット、正解データ、DB、出力 CSV）は GitHub で管理しない
-# assets/ のアイコン・桁テンプレートは動作に必要なためここでは除外しない
+# assets/ のアイコン・桁テンプレートは動作に必要なためここでは除外しない（assets/tessdata_best/ は約30MBの学習データなので除外）
+assets/tessdata_best/
 src/resources/
 src/test/resources/
 docs/sample/
