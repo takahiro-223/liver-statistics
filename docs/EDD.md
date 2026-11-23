@@ -20,11 +20,11 @@
 | 言語 | Python 3.14 | ADR-002。依存ライブラリが未対応の場合は 3.13 → 3.12 の順に変更を検討。依存関係は `pyproject.toml` で管理 |
 | データストア | SQLite（標準ライブラリ `sqlite3`） | ADR-003。ローカル単一ファイル。ORM は使わない |
 | 画像処理 | OpenCV (`opencv-python-headless`)、Pillow、NumPy | カード位置の検出、前処理、EXIF 取得 |
-| 文字認識（OCR） | Tesseract 5（`jpn` / `eng` 学習データ）+ `pytesseract` | ADR-004。ローカル完結。`OcrEngine` インターフェース越しに差し替え可能 |
+| 文字認識（OCR） | Tesseract 5（`jpn` / `eng` 学習データ）+ `pytesseract`。名前は高精度モデル（`tessdata_best`、任意）も併用 | ADR-004。ローカル完結。`OcrEngine` インターフェース越しに差し替え可能。高精度モデルは `assets/tessdata_best/`（git 管理外）に置き、無ければ 1 モデルで読む |
 | CLI | `argparse`（標準ライブラリ） | コマンド名: `liver-stats` |
 | 設定 | `python-dotenv`、`config.py` | 設定値は `.env` と設定ファイル（TOML）で管理 |
 | テスト | `pytest` | `pyproject.toml` の `dev` セクションで管理 |
-| システム依存 | Tesseract 本体（macOS: `brew install tesseract tesseract-lang`） | pip では導入できないため `docs/setup.md` に手順を記載。開発環境には導入済み |
+| システム依存 | Tesseract 本体（macOS: `brew install tesseract tesseract-lang`） | pip では導入できないため `docs/setup.md` に手順を記載（高精度モデルの学習データの取得手順も同様）。開発環境には導入済み |
 
 ### 2.2 コンポーネント構成
 
@@ -49,7 +49,7 @@
 ```
 
 - `scripts/` の `evaluate_accuracy.py` / `build_digit_templates.py` は、`evaluation/`（正答率の測定・桁テンプレート作成）を呼ぶ補助ツールで、図の `pipeline.py` / `ocr/` を再利用する（取り込みの本線には含まれない）。
-- 外部ネットワークへの通信は行わない（PRD セキュリティ要件）。OCR は Tesseract をローカルのサブプロセスとして呼び出す。
+- 実行時には外部ネットワークへの通信を行わない（PRD セキュリティ要件）。OCR は Tesseract をローカルのサブプロセスとして呼び出す。外部へ接続するのはセットアップ時のみ（Tesseract・依存パッケージ・高精度モデルの学習データの取得。学習データはコミットを固定して SHA-256 を検証する）。
 - `pipeline.py` が取り込みの全工程を統合し、トランザクション境界を持つ。
 
 ---
@@ -92,6 +92,10 @@
   → db.repository : 条件に合致する記録を取得
   → export.csv_exporter : CSV（UTF-8 BOM 付き）としてファイルに書き出す
 ```
+
+### 3.4 性能（PRD 5 章「性能」への対応）
+
+PRD の要件「1 部族（50 人、画像約 10 枚）の読み取りから登録までを数分以内」に対し、実測は **12 枚・36 人で約 9 秒**（名前を 2 モデルで読む設定。開発機での測定）で、要件を大きく下回る。支配的なコストは Tesseract の呼び出しで、名前 1 カードにつき 2 回（従来モデルと高精度モデル。別プロセスのため並列に実行）。数値は桁テンプレート照合のため Tesseract を呼ばない。DB への登録は 1 トランザクションで、時間にほとんど影響しない。高精度モデルが無い場合、名前の Tesseract 呼び出しは 1 回になる。
 
 ---
 
@@ -176,6 +180,15 @@ CREATE INDEX idx_member_records_date ON member_records(record_date);
 - 登録後の訂正・別名登録は運営者が DB を直接書き換える（PRD 4.3 / 4.4）。`needs_review = 1` の行を SQL で抽出できる。
 - `review_reason` は複数ある場合カンマ区切りとする。
 
+### 4.3 データ保全（バックアップ）（PRD 5 章「データ保全」への対応）
+
+- 方式: 実装は追加せず、SQLite 標準の `.backup`（オンラインバックアップ。書き込み中でも一貫したコピーを作る）を運用手順として `docs/setup.md` に記載する。
+  `sqlite3 data/liver_statistics.db ".backup data/backup/liver_statistics_YYYYMMDD.db"`
+- 運用: 取り込みの前と、データベースを直接書き換える（要確認の行や誤読した名前を訂正する）前後にバックアップを取る。
+- 復元: バックアップのファイルを `DB_PATH` の場所へ戻す（`liver-stats` は起動時にスキーマが無ければ作成するだけで、既存データを壊さない）。
+- 保管: バックアップはメンバー情報を含むため `data/` 配下（git 管理外）に置く。
+- 採用しなかった案: `liver-stats backup` サブコマンド、取り込み前の自動コピー。運営者 1 人・週次の運用では、手順の記載で足りるため、実装を増やさない。
+
 ---
 
 ## 5. モジュール設計
@@ -251,7 +264,7 @@ def detect_cards(image: np.ndarray, cfg: Config) -> list[CardRegions]:
     上から下の順に返す。"""
 ```
 
-- 領域の相対比率（アイコン高さ `h` を単位とする）は `config/ocr_layout.toml` に置く。初期値は `docs/sample/BASE_INF.PNG` を基準に実装時に調整する。
+- 領域の相対比率（アイコン高さ `h` を単位とする）は `config/ocr_layout.toml` に置く。初期値は `docs/sample/BASE_INF.PNG`（画像データはメンバー情報を含むため git 管理外。手元に配置する）を基準に実装時に調整する。
   - 名前: 剣アイコンの上端から約 `1.2h` 上を下端とする1行分、左端はアイコン左端、右端はカード右端
   - 数値: 各アイコンと同じ高さの帯、左端はアイコン右端から約 `2h`、右端はカード右端
 
@@ -441,6 +454,7 @@ liver-statistics/
 │   └── ocr_layout.toml
 ├── assets/
 │   ├── icons/                 # sword.png, star.png（サンプル画像から切り出し）
+│   ├── tessdata_best/         # 高精度モデルの学習データ（jpn / eng。約30MB。git 管理外。取得手順は docs/setup.md）
 │   └── digits/                # 数値の桁テンプレート（0_00.png 等。build_digit_templates.py で作成）
 ├── data/                      # DB・生成物（git 管理外）
 ├── src/
@@ -487,6 +501,7 @@ liver-statistics/
 - 出力: 項目単位（ユーザ名・レベル・名誉）の正解数／全項目数（PRD 5章の定義）、項目別の正答率、誤読の一覧
 - 判定: 全体の正答率 70% 以上。測定対象はサンプル画像10枚程度・30人分（PRD 5章）
 - ユーザ名の正解判定は、`normalize_name` 後の完全一致とする
+- ユーザ名を読み取れず正解データと突き合わせられないメンバーは、レベル・名誉も含めて 3 項目とも不正解として数える（PRD 5 章の定義。`AccuracyReport` の `total` は正解データの人数 × 3）
 
 ---
 

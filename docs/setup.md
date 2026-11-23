@@ -48,6 +48,17 @@ cp .env.example .env     # 必要に応じて編集
 - 「要確認」の行は SQLite で抽出し、必要なら直接書き換えて訂正する。
   `sqlite3 data/liver_statistics.db "SELECT * FROM member_records WHERE needs_review = 1"`
 
+## バックアップ
+
+DB は SQLite の単一ファイル（`data/liver_statistics.db`、git 管理外）です。取り込みの前と、DB を直接書き換える（要確認の行や誤読した名前を訂正する）前後に、SQLite 標準の `.backup` でバックアップを取ってください（書き込み中でも一貫したコピーが作られます）。バックアップはメンバー情報を含むため、`data/` 配下（git 管理外）に置きます。
+
+```bash
+mkdir -p data/backup
+sqlite3 data/liver_statistics.db ".backup data/backup/liver_statistics_$(date +%Y%m%d).db"
+```
+
+復元するときは、バックアップのファイルを `DB_PATH`（既定 `data/liver_statistics.db`）の場所へコピーして戻します。
+
 ## テスト
 
 ```bash

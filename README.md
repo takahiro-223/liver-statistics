@@ -77,6 +77,10 @@ sqlite3 data/liver_statistics.db "SELECT * FROM member_records WHERE needs_revie
 | 1 | 入力エラー等（フォルダ・部族・日付の指定ミスなど。メッセージを確認） |
 | 2 | 想定外のエラー |
 
+## バックアップ
+
+取り込みの前と、DB を直接書き換える前後に、`sqlite3 data/liver_statistics.db ".backup data/backup/liver_statistics_$(date +%Y%m%d).db"` でバックアップを取ります（詳細は [docs/setup.md](docs/setup.md)）。
+
 ## 設定
 
 `.env`（`.env.example` をコピーして作成）で変更できます。主なもの:
