@@ -135,3 +135,12 @@ def test_missing_icons_is_input_error_not_image_failure(cfg, shots, tmp_path):
     with pytest.raises(InputError):
         run_import(shots, "TEST", date(2026, 11, 22), "skip", bad)
     assert not bad.db_path.exists()  # DB にも触れずに終了する
+
+
+def test_image_without_cards_reported_others_imported(cfg, shots):
+    import cv2
+    import numpy as np
+
+    cv2.imwrite(str(shots / "blank.png"), np.full((600, 300, 3), 200, np.uint8))
+    s = run_import(shots, "TEST", date(2026, 11, 22), "skip", cfg)
+    assert s.images_no_cards == ["blank.png"] and s.images_failed == [] and s.inserted == 4

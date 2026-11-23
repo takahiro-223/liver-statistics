@@ -46,11 +46,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _cmd_import(args: argparse.Namespace, cfg: Config) -> int:
     s = run_import(args.dir, args.tribe, args.date, args.on_conflict, cfg)
-    ok = s.images_total - len(s.images_failed)
+    ok = s.images_total - len(s.images_failed) - len(s.images_no_cards)
     print(f"部族: {args.tribe}" + (f" / 記録日: {args.date}" if args.date else ""))
-    print(f"画像: {s.images_total}枚（成功 {ok} / 失敗 {len(s.images_failed)}）")
+    print(f"画像: {s.images_total}枚（成功 {ok} / 失敗 {len(s.images_failed)} / カード未検出 {len(s.images_no_cards)}）")
     if s.images_failed:
         print("  失敗: " + ", ".join(s.images_failed))
+    if s.images_no_cards:
+        print("  カード未検出: " + ", ".join(s.images_no_cards))
+        print("  ※ メンバー画面のスクリーンショットを、縮小されていない元の解像度で指定しているか確認してください")
+    if s.images_no_cards and len(s.images_no_cards) + len(s.images_failed) == s.images_total:
+        print("警告: どの画像からもメンバーを読み取れませんでした（登録は行われていません）")
     print(f"登録: {s.inserted + s.overwritten + s.skipped}件"
           f"（新規 {s.inserted} / 上書き {s.overwritten} / スキップ {s.skipped}）")
     print(f"要確認: {len(s.needs_review)}件" + (f"（{', '.join(s.needs_review)}）" if s.needs_review else ""))

@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 class ImportSummary:
     images_total: int = 0
     images_failed: list[str] = field(default_factory=list)
+    images_no_cards: list[str] = field(default_factory=list)  # 読み取れたカードが1枚も無かった画像
     inserted: int = 0
     overwritten: int = 0
     skipped: int = 0
@@ -98,7 +99,11 @@ def run_import(
     for path in images:
         try:
             rec_date, captured = resolve_record_date(path, record_date)
-            for card in read_cards(path, engine, cfg):
+            cards = read_cards(path, engine, cfg)
+            if not cards:
+                logger.warning("メンバーのカードを検出できませんでした: %s", path.name)
+                summary.images_no_cards.append(path.name)
+            for card in cards:
                 extracted.append(_Extracted(rec_date, path, captured, card))
         except ImageReadError as exc:
             logger.warning("画像の処理に失敗しました: %s", exc)

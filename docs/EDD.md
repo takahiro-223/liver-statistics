@@ -70,10 +70,11 @@
   → pipeline            : 同一実行内の重複メンバーを統合（3.2 参照）
   → members.matcher     : ユーザ名を既存メンバー・別名と照合（4章・5.4 参照）
   → db.repository       : 1トランザクションで登録（重複は上書き／スキップ）
-  → 実行結果の表示（画像数・登録件数・要確認件数と対象ユーザ名・失敗画像）
+  → 実行結果の表示（画像数・登録件数・要確認件数と対象ユーザ名・失敗画像・カード未検出の画像）
 ```
 
 - 1枚の画像で例外が発生した場合は、その画像を失敗として記録して次の画像へ進む。
+- 例外は出なかったが、読み取れたカードが1枚も無い画像（アイコンを検出できない低解像度の画像、メンバー画面以外、名前がすべて空など）は、失敗とは別に「カード未検出」として記録し、ログ（WARNING）と実行結果で報告する。登録は妨げない。
 - DB への書き込みは、全画像の解析が終わった後に1トランザクションで行う。登録中に失敗した場合はロールバックし、部分的なデータを残さない。ただし画像単位の解析失敗は登録を妨げない（失敗画像として報告する）。
 
 ### 3.2 同一実行内の重複統合
@@ -360,6 +361,7 @@ class Repository:
 class ImportSummary:
     images_total: int
     images_failed: list[str]
+    images_no_cards: list[str]  # 例外は無いが、読み取れたカードが1枚も無かった画像
     inserted: int
     overwritten: int
     skipped: int
@@ -385,7 +387,7 @@ def export_csv(rows: list[RecordRow], out_path: Path) -> int:
 
 | コマンド | 主なオプション | 終了コード |
 |---|---|---|
-| `liver-stats import` | `--dir`（必須）`--tribe`（必須）`--date`（任意、YYYY-MM-DD）`--on-conflict {skip,overwrite}`（既定 skip） | 0: 成功（失敗画像があっても0。結果に表示）/ 1: 入力エラー / 2: 想定外エラー |
+| `liver-stats import` | `--dir`（必須）`--tribe`（必須）`--date`（任意、YYYY-MM-DD）`--on-conflict {skip,overwrite}`（既定 skip） | 0: 成功（失敗画像・カード未検出の画像があっても0。結果に表示。すべての画像で読み取れなかった場合は警告を表示）/ 1: 入力エラー / 2: 想定外エラー |
 | `liver-stats export` | `--tribe`（必須）`--date` または `--from`/`--to`、`--member`（任意）、`--out`（必須） | 同上 |
 
 - `--date` と `--from`/`--to` の同時指定、`--out` の親ディレクトリが存在しない場合は入力エラーとする。

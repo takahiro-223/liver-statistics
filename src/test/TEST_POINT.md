@@ -15,6 +15,7 @@
 | `members/matcher.py` | 正規化（全角半角・大文字小文字・空白）/ 既存メンバーと一致 / 類似名で `similar_to`（複数候補なら ratio 最大のものを表示）/ 類似しない名前は新規 / 短い名前（3文字以上）の1文字違いも類似扱い（「ぽこた」「ぼこた」）/ 最小長未満は対象外 / 編集距離1の判定（置換・挿入・削除） |
 | `pipeline.merge_duplicates` | 同一（記録日,名前）を1件に統合 / 信頼度が高い方を採用 / 画像間で値が違えば `conflict_between_images` |
 | `export/csv_exporter.py` | BOM 付き UTF-8 / ヘッダー / None は空欄 / 件数を返す |
+| `pipeline.run_import`（カード未検出） | カードが無い画像は `images_no_cards` に入り、失敗には数えない / 登録は 0 件 / CLI が「カード未検出」の行・確認を促す注意書きを出し、全画像が該当する場合は警告を出す（終了コードは 0） |
 | `cli.py` | 日付形式の検証 / `--date` と `--from/--to` の同時指定でエラー / `LOG_LEVEL` が不正なら終了コード1 |
 
 ## インテグレーションテスト（`src/test/src/integration/`）
