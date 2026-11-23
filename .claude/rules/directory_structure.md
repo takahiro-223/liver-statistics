@@ -46,6 +46,7 @@
 - 新しいファイルは必ず上記の対応するディレクトリに配置する
 - `src/{{package_name}}/` 配下のモジュールは役割ごとに分離し、統合レイヤー（`pipeline.py` 等）でまとめる
 - 機密データ・生成物（`data/`・`.env` 等）はgit管理外 (`.gitignore` に追記) とする
+- **画像データ（スクリーンショット）と、メンバー情報を含む資料（正解データ CSV、DB、出力 CSV）は GitHub で管理しない。** `src/resources/`・`src/test/resources/`・`docs/sample/`・`data/`、および `*.csv` / `*.db` / 画像の一括パターンを `.gitignore` で除外している。新しい置き場所を作る場合も `.gitignore` に追記すること（`assets/` のアイコン・桁テンプレートは動作に必要なため管理対象）
 - 設定値はすべて `config.py` および `.env` で一元管理し、ハードコードしない
 - ドキュメントは `docs/` に集約し、技術選定の理由は `docs/decisions/` にADR形式で記録する
 - `docs/BRD.md`、`docs/EDD.md`、`docs/PRD.md` は必ず作成する必須ドキュメントとする

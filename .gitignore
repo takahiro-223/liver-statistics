@@ -29,3 +29,21 @@ Thumbs.db
 
 # 実行時データ（SQLite DB など）
 data/
+
+# 画像データ・メンバー情報（スクリーンショット、正解データ、DB、出力 CSV）は GitHub で管理しない
+# assets/ のアイコン・桁テンプレートは動作に必要なためここでは除外しない
+src/resources/
+src/test/resources/
+docs/sample/
+*.jpg
+*.jpeg
+*.JPG
+*.JPEG
+スクリーンショット*
+Screenshot*
+IMG_*.PNG
+IMG_*.png
+*.csv
+*.db
+*.sqlite
+*.sqlite3

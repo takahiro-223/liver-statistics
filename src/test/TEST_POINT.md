@@ -19,7 +19,7 @@
 
 ## インテグレーションテスト（`src/test/src/integration/`）
 
-実際の SQLite（一時ファイル）と、実際の Tesseract・サンプル画像（`docs/sample/BASE_INF.PNG`）を使う。
+実際の SQLite（一時ファイル）と、実際の Tesseract・サンプル画像（`docs/sample/BASE_INF.PNG`、git 管理外。無い場合はスキップ）を使う。
 
 | 観点 |
 |---|

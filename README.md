@@ -109,6 +109,8 @@ sqlite3 data/liver_statistics.db "SELECT * FROM member_records WHERE needs_revie
 
 ## テスト
 
+スクリーンショット・正解データ（`src/resources/`、`src/test/resources/`、`docs/sample/`）はメンバー情報を含むため **GitHub では管理していません**（`.gitignore` で除外）。手元に配置してください。サンプル画像（`docs/sample/BASE_INF.PNG`）が無い場合、インテグレーションテストはスキップされます。
+
 ```bash
 .venv/bin/pytest
 ```
