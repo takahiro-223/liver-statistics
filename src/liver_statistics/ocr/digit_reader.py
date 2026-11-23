@@ -14,11 +14,11 @@ import numpy as np
 from .engine import OcrResult
 
 GLYPH_SIZE = (24, 36)  # (幅, 高さ)。切り出した 1 桁をこの大きさに正規化して比較する
+# 以下は切り出しアルゴリズムの内部定数（テンプレートの正規化と一体のため設定化しない）
 _SCALE = 3
 _MIN_AREA = 20  # 拡大後の画素数。これ未満の連結成分はノイズとして無視する
 _COMMA_MAX_HEIGHT_RATIO = 0.5   # 最大の文字の高さに対し、これ未満ならカンマ
 _MAX_ASPECT = 0.95              # 幅/高さ がこれを超える成分は桁がくっついている疑い
-_MAX_DISTANCE = 0.30            # 最近傍との距離がこの値のとき信頼度 0
 
 
 def _ink_mask(image: np.ndarray) -> np.ndarray | None:
@@ -75,10 +75,11 @@ def load_templates(directory: str) -> dict[str, np.ndarray]:
     return {d: np.stack(v) for d, v in by_digit.items()}
 
 
-def read_digits(image: np.ndarray, templates: dict[str, np.ndarray]) -> OcrResult | None:
+def read_digits(image: np.ndarray, templates: dict[str, np.ndarray], max_distance: float) -> OcrResult | None:
     """テンプレート照合で数値を読む。読めない（照合不能）場合は None。
 
-    信頼度は、各桁の最近傍距離（画素の平均絶対差）の最大値から 0-100 に換算する。
+    信頼度は、各桁の最近傍距離（画素の平均絶対差）の最大値から 0-100 に換算する
+    （max_distance のとき 0。設定 DIGIT_MAX_DISTANCE）。
     """
     if len(templates) < 10:  # 0-9 が揃っていなければ使えない
         return None
@@ -98,4 +99,4 @@ def read_digits(image: np.ndarray, templates: dict[str, np.ndarray]) -> OcrResul
                 best_digit, best = digit, d
         text += best_digit
         worst = max(worst, best)
-    return OcrResult(text=text, confidence=round(max(0.0, 100.0 * (1.0 - worst / _MAX_DISTANCE)), 1))
+    return OcrResult(text=text, confidence=round(max(0.0, 100.0 * (1.0 - worst / max_distance)), 1))

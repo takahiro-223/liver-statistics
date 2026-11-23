@@ -11,12 +11,13 @@ from ..errors import OcrEngineUnavailableError
 from .digit_reader import load_templates, read_digits
 from .engine import OcrResult
 
-_TESSERACT_TIMEOUT_SEC = 30
-
 
 class TesseractEngine:
     def __init__(self, cfg: Config) -> None:
         self._lang = cfg.ocr_lang
+        self._number_lang = cfg.number_ocr_lang
+        self._timeout = cfg.tesseract_timeout_sec
+        self._max_distance = cfg.digit_max_distance
         self._digits_dir = str(cfg.digits_dir)
         if cfg.tesseract_cmd:
             pytesseract.pytesseract.tesseract_cmd = cfg.tesseract_cmd
@@ -47,7 +48,7 @@ class TesseractEngine:
     def _run(self, prepared: np.ndarray, lang: str, extra: str) -> OcrResult:
         data = pytesseract.image_to_data(
             prepared, lang=lang, config=f"--psm 7 {extra}",
-            output_type=Output.DICT, timeout=_TESSERACT_TIMEOUT_SEC,
+            output_type=Output.DICT, timeout=self._timeout,
         )
         words = [(t, float(c)) for t, c in zip(data["text"], data["conf"]) if t.strip() and float(c) >= 0]
         if not words:
@@ -60,8 +61,8 @@ class TesseractEngine:
 
     def read_number(self, image: np.ndarray) -> OcrResult:
         """数値は桁テンプレート照合を優先し、使えない場合のみ Tesseract で読む。"""
-        result = read_digits(image, load_templates(self._digits_dir))
+        result = read_digits(image, load_templates(self._digits_dir), self._max_distance)
         return result if result is not None else self.read_number_tesseract(image)
 
     def read_number_tesseract(self, image: np.ndarray) -> OcrResult:
-        return self._run(self._preprocess(image), "eng", "-c tessedit_char_whitelist=0123456789,")
+        return self._run(self._preprocess(image), self._number_lang, "-c tessedit_char_whitelist=0123456789,")

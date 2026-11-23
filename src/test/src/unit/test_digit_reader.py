@@ -17,7 +17,7 @@ def make_templates() -> dict[str, np.ndarray]:
 
 
 def test_reads_digits_and_commas():
-    result = read_digits(render("9,081,726"), make_templates())
+    result = read_digits(render("9,081,726"), make_templates(), 0.30)
     assert result is not None
     assert result.text == "9,081,726"
     assert result.confidence > 60
@@ -25,7 +25,7 @@ def test_reads_digits_and_commas():
 
 def test_repeated_digits_are_not_merged():
     # Tesseract が「44」を 1 桁に潰す問題の再発防止
-    result = read_digits(render("449,448"), make_templates())
+    result = read_digits(render("449,448"), make_templates(), 0.30)
     assert result is not None and result.text == "449,448"
 
 
@@ -36,6 +36,14 @@ def test_segment_marks_comma_as_none():
 
 def test_returns_none_when_unreadable():
     templates = make_templates()
-    assert read_digits(np.full((40, 200, 3), 225, np.uint8), templates) is None  # 文字なし
-    assert read_digits(render("123"), {}) is None                                # テンプレートなし
-    assert read_digits(render("123"), {"1": templates["1"]}) is None             # 0-9 が揃っていない
+    assert read_digits(np.full((40, 200, 3), 225, np.uint8), templates, 0.30) is None  # 文字なし
+    assert read_digits(render("123"), {}, 0.30) is None                                # テンプレートなし
+    assert read_digits(render("123"), {"1": templates["1"]}, 0.30) is None             # 0-9 が揃っていない
+
+
+def test_confidence_follows_max_distance():
+    # テンプレートを一律にずらして距離を 0 より大きくし、換算が max_distance に従うことを確かめる
+    shifted = {d: np.clip(v + 0.05, 0, 1) for d, v in make_templates().items()}
+    strict = read_digits(render("123"), shifted, 0.06)
+    loose = read_digits(render("123"), shifted, 0.30)
+    assert 0 <= strict.confidence < loose.confidence < 100

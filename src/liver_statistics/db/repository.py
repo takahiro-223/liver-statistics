@@ -122,8 +122,7 @@ class Repository:
 
     def query_records(
         self, tribe: str, on_date: date | None = None, date_from: date | None = None,
-        date_to: date | None = None, member: str | None = None,
-        member_key: str | None = None,
+        date_to: date | None = None, member_key: str | None = None,
     ) -> list[RecordRow]:
         sql = (
             "SELECT t.name AS tribe, r.record_date, m.name AS member, r.level, r.honor, r.needs_review "

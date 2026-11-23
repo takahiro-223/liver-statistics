@@ -7,7 +7,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from .config import load_config
+from .config import Config, load_config
 from .db.connection import connect
 from .db.repository import Repository
 from .errors import InputError, LiverStatisticsError
@@ -44,8 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _cmd_import(args: argparse.Namespace) -> int:
-    cfg = load_config()
+def _cmd_import(args: argparse.Namespace, cfg: Config) -> int:
     s = run_import(args.dir, args.tribe, args.date, args.on_conflict, cfg)
     ok = s.images_total - len(s.images_failed)
     print(f"部族: {args.tribe}" + (f" / 記録日: {args.date}" if args.date else ""))
@@ -58,14 +57,13 @@ def _cmd_import(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_export(args: argparse.Namespace) -> int:
+def _cmd_export(args: argparse.Namespace, cfg: Config) -> int:
     if args.date and (args.date_from or args.date_to):
         raise InputError("--date と --from/--to は同時に指定できません")
     if args.date_from and args.date_to and args.date_from > args.date_to:
         raise InputError("--from は --to 以前の日付を指定してください")
     if not args.out.parent.is_dir():
         raise InputError(f"出力先フォルダが存在しません: {args.out.parent}")
-    cfg = load_config()
     conn = connect(cfg.db_path)
     try:
         repo = Repository(conn)
@@ -84,9 +82,10 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
     try:
-        return _cmd_import(args) if args.command == "import" else _cmd_export(args)
+        cfg = load_config()  # 設定エラーは引数の検証より先に報告する
+        logging.basicConfig(level=cfg.log_level, format="%(levelname)s %(message)s")
+        return _cmd_import(args, cfg) if args.command == "import" else _cmd_export(args, cfg)
     except LiverStatisticsError as exc:
         print(f"エラー: {exc}", file=sys.stderr)
         return 1

@@ -40,6 +40,10 @@ class Config:
     confidence_threshold: float
     icon_match_threshold: float
     name_similarity_threshold: float
+    name_edit_min_length: int   # 編集距離 1 以内を類似名とみなす最小の名前の長さ
+    tesseract_timeout_sec: float
+    number_ocr_lang: str        # Tesseract にフォールバックして数値を読む際の言語
+    digit_max_distance: float   # 桁テンプレートとの距離がこの値のとき信頼度 0
     icons_dir: Path
     digits_dir: Path
     layout: LayoutConfig
@@ -53,6 +57,32 @@ def _env_float(name: str, default: float) -> float:
         return float(raw)
     except ValueError as exc:
         raise InputError(f"環境変数 {name} が数値ではありません: {raw!r}") from exc
+
+
+def _env_float_in(name: str, default: float, low: float, high: float | None = None) -> float:
+    """low を超え（high があれば high 以下の）数値。範囲外は InputError。"""
+    value = _env_float(name, default)
+    if not value > low or (high is not None and value > high):
+        bound = f"{low} より大きく {high} 以下" if high is not None else f"{low} より大きい値"
+        raise InputError(f"環境変数 {name} は {bound}を指定してください: {value}")
+    return value
+
+
+def _env_min_length(name: str, default: int) -> int:
+    value = _env_float(name, default)
+    if value < 1 or value != int(value):
+        raise InputError(f"環境変数 {name} は 1 以上の整数を指定してください: {value}")
+    return int(value)
+
+
+_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+
+def _env_log_level() -> str:
+    level = (os.environ.get("LOG_LEVEL") or "INFO").upper()
+    if level not in _LOG_LEVELS:
+        raise InputError(f"環境変数 LOG_LEVEL が不正です: {level!r}（{', '.join(_LOG_LEVELS)} のいずれか）")
+    return level
 
 
 def _resolve(path: str) -> Path:
@@ -89,12 +119,16 @@ def load_config() -> Config:
     load_dotenv(PROJECT_ROOT / ".env")
     return Config(
         db_path=_resolve(os.environ.get("DB_PATH") or "data/liver_statistics.db"),
-        log_level=os.environ.get("LOG_LEVEL") or "INFO",
+        log_level=_env_log_level(),
         ocr_lang=os.environ.get("OCR_LANG") or "jpn+eng",
         tesseract_cmd=os.environ.get("TESSERACT_CMD") or None,
-        confidence_threshold=_env_float("CONFIDENCE_THRESHOLD", 60.0),
-        icon_match_threshold=_env_float("ICON_MATCH_THRESHOLD", 0.7),
-        name_similarity_threshold=_env_float("NAME_SIMILARITY_THRESHOLD", 0.8),
+        confidence_threshold=_env_float_in("CONFIDENCE_THRESHOLD", 60.0, -1, 100),
+        icon_match_threshold=_env_float_in("ICON_MATCH_THRESHOLD", 0.7, 0, 1),
+        name_similarity_threshold=_env_float_in("NAME_SIMILARITY_THRESHOLD", 0.8, 0, 1),
+        name_edit_min_length=_env_min_length("NAME_EDIT_MIN_LENGTH", 3),
+        tesseract_timeout_sec=_env_float_in("TESSERACT_TIMEOUT_SEC", 30.0, 0),
+        number_ocr_lang=os.environ.get("NUMBER_OCR_LANG") or "eng",
+        digit_max_distance=_env_float_in("DIGIT_MAX_DISTANCE", 0.30, 0),
         icons_dir=_resolve(os.environ.get("ICONS_DIR") or "assets/icons"),
         digits_dir=_resolve(os.environ.get("DIGITS_DIR") or "assets/digits"),
         layout=load_layout(

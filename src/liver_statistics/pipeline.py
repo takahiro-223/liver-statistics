@@ -14,7 +14,7 @@ from .errors import ImageReadError
 from .ingest.captured_at import resolve_record_date
 from .ingest.scanner import list_images
 from .members.matcher import normalize_name, resolve_member
-from .ocr.card_detector import detect_cards, load_image
+from .ocr.card_detector import check_assets, detect_cards, load_image
 from .ocr.engine import OcrEngine
 from .ocr.parser import ParsedCard, parse_card
 
@@ -88,6 +88,7 @@ def run_import(
 ) -> ImportSummary:
     """フォルダ内の画像を読み取り、1トランザクションで登録する。"""
     images = list_images(directory)
+    check_assets(cfg)  # アイコン不備は画像単位の失敗にせず、ここで入力エラーとして止める
     if engine is None:
         from .ocr.tesseract_engine import TesseractEngine  # 重い初期化は必要時のみ
         engine = TesseractEngine(cfg)
@@ -120,7 +121,9 @@ def run_import(
                     )
                 card = item.card
                 reasons = list(card.review_reasons)
-                match = resolve_member(repo, tribe_id, card.name, cfg.name_similarity_threshold)
+                match = resolve_member(
+                    repo, tribe_id, card.name, cfg.name_similarity_threshold, cfg.name_edit_min_length
+                )
                 if match.member_id is None:
                     member_id = repo.create_member(tribe_id, card.name, match.name_key)
                     if match.similar_to:
@@ -137,7 +140,12 @@ def run_import(
                     ),
                     on_conflict,
                 )
-                setattr(summary, result, getattr(summary, result) + 1)
+                if result == "inserted":
+                    summary.inserted += 1
+                elif result == "overwritten":
+                    summary.overwritten += 1
+                else:
+                    summary.skipped += 1
                 if needs_review and result != "skipped":
                     summary.needs_review.append(card.name)
     finally:

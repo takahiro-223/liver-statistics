@@ -113,3 +113,14 @@ def test_export_cli(cfg, shots, tmp_path, monkeypatch):
     assert len(lines) == 1 + 2 and all("alice" in l for l in lines[1:])
 
     assert main(["export", "--tribe", "NONE", "--out", str(out)]) == 1
+
+
+def test_missing_icons_is_input_error_not_image_failure(cfg, shots, tmp_path):
+    import dataclasses
+
+    from liver_statistics.errors import InputError
+
+    bad = dataclasses.replace(cfg, icons_dir=tmp_path / "none")
+    with pytest.raises(InputError):
+        run_import(shots, "TEST", date(2026, 11, 22), "skip", bad)
+    assert not bad.db_path.exists()  # DB にも触れずに終了する

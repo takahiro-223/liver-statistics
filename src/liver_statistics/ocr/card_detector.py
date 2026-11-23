@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 
 from ..config import Config
-from ..errors import ImageReadError
+from ..errors import ImageReadError, InputError
 
 
 @dataclass(frozen=True)
@@ -46,8 +46,17 @@ def load_image(path: Path) -> np.ndarray:
 def _load_template(path: str) -> np.ndarray:
     template = cv2.imread(path, cv2.IMREAD_COLOR)
     if template is None:
-        raise ImageReadError(f"アイコン画像を読み込めません: {path}")
+        raise InputError(f"アイコン画像を読み込めません（ICONS_DIR を確認してください）: {path}")
     return template
+
+
+def check_assets(cfg: Config) -> None:
+    """検出に必要なアイコン画像が読めることを確認する。読めなければ InputError。
+
+    画像ごとの処理に入る前に呼び、設定・アセットの不備が「全画像の失敗」として埋もれるのを防ぐ。
+    """
+    for name in ("sword.png", "star.png"):
+        _load_template(str(cfg.icons_dir / name))
 
 
 def _scaled(template: np.ndarray, scale: float) -> np.ndarray:
