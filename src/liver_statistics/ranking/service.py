@@ -27,7 +27,7 @@ def run_ranking(tribe: str, on_date: date | None, out_path: Path, cfg: Config) -
 
     未登録の部族・記録が無い部族・指定した記録日にデータが無い場合は InputError。
     """
-    conn = connect(cfg.db_path)
+    conn = connect(cfg.db_path, must_exist=True)
     try:
         repo = Repository(conn)
         tribe_id = repo.find_tribe(tribe)

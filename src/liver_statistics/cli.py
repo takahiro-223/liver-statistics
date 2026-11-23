@@ -75,7 +75,7 @@ def _cmd_export(args: argparse.Namespace, cfg: Config) -> int:
         raise InputError("--from は --to 以前の日付を指定してください")
     if not args.out.parent.is_dir():
         raise InputError(f"出力先フォルダが存在しません: {args.out.parent}")
-    conn = connect(cfg.db_path)
+    conn = connect(cfg.db_path, must_exist=True)
     try:
         repo = Repository(conn)
         if repo.find_tribe(args.tribe) is None:

@@ -5,6 +5,7 @@ import csv
 from datetime import date
 from pathlib import Path
 
+from ..export.csv_safe import atomic_csv, csv_safe
 from .calc import RankEntry, RankingTable
 
 HEADER = [
@@ -24,20 +25,21 @@ def _cells(entry: RankEntry | None) -> list[str]:
         return ["", "", ""]
     return [
         "" if entry.rank is None else str(entry.rank),
-        entry.name,
+        csv_safe(entry.name),
         "-" if entry.value is None else str(entry.value),
     ]
 
 
 def write_ranking_csv(table: RankingTable, out_path: Path) -> int:
-    """メンバー数（データ行数）を返す。UTF-8 BOM 付き。出力先が既存の場合は上書きする。
+    """メンバー数（データ行数）を返す。UTF-8 BOM 付き。出力先が既存の場合は上書きする（成功時のみ置き換える）。
 
     1 行目は期間と「各種ランキング」を入れた 1 セル（CSV には結合セルが無いため）。
+    ユーザ名は、数式として解釈されないよう csv_safe を通す（値の「-」は通さない）。
     """
     previous = "（前回なし）" if table.previous_date is None else _fmt_date(table.previous_date)
     columns = [table.level, table.honor, table.level_gain, table.honor_gain]
     rows = max(len(c) for c in columns)
-    with out_path.open("w", encoding="utf-8-sig", newline="") as f:
+    with atomic_csv(out_path) as f:
         writer = csv.writer(f)
         writer.writerow([f"{previous}〜{_fmt_date(table.current_date)} 各種ランキング"])
         writer.writerow(HEADER)

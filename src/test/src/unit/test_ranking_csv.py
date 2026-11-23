@@ -1,6 +1,8 @@
 import csv
 from datetime import date
 
+import pytest
+
 from liver_statistics.ranking.calc import RankEntry, RankingTable
 from liver_statistics.ranking.csv_writer import HEADER, write_ranking_csv
 
@@ -62,3 +64,26 @@ def test_overwrites_existing_file(tmp_path):
     out.write_text("old", encoding="utf-8")
     write_ranking_csv(table(), out)
     assert "old" not in out.read_text(encoding="utf-8-sig")
+
+
+def test_names_are_neutralized_but_values_are_not(tmp_path):
+    t = RankingTable(
+        current_date=date(2026, 11, 23), previous_date=date(2026, 11, 16),
+        level=entries((1, "=1+1", 10)), honor=entries((1, "-abc", 20)),
+        level_gain=entries((1, "+81", -5)), honor_gain=entries((None, "@sum", None)),
+        no_previous=[], needs_review=[],
+    )
+    out = tmp_path / "r.csv"
+    write_ranking_csv(t, out)
+    row = read(out)[2]
+    assert row == ["1", "'=1+1", "10", "1", "'-abc", "20", "1", "'+81", "-5", "", "'@sum", "-"]
+
+
+def test_failure_keeps_existing_ranking_file(tmp_path, monkeypatch):
+    out = tmp_path / "r.csv"
+    out.write_text("old", encoding="utf-8")
+    from liver_statistics.ranking import csv_writer
+    monkeypatch.setattr(csv_writer, "_cells", lambda entry: (_ for _ in ()).throw(RuntimeError("boom")))
+    with pytest.raises(RuntimeError):
+        write_ranking_csv(table(), out)
+    assert out.read_text(encoding="utf-8") == "old"

@@ -375,8 +375,10 @@ def resolve_member(repo, tribe_id: int, name: str, threshold: float, edit_min_le
 
 ```python
 # connection.py
-def connect(db_path: Path) -> sqlite3.Connection:
-    """外部キー有効化、row_factory 設定。スキーマ（schema.sql）が無ければ作成する。"""
+def connect(db_path: Path, must_exist: bool = False) -> sqlite3.Connection:
+    """外部キー有効化、row_factory 設定。スキーマ（schema.sql）が無ければ作成する。
+    must_exist=True（export・ranking など読み取りのコマンド）では、DB ファイルが無ければ InputError にし、
+    フォルダも空の DB も作らない（DB_PATH の指定ミスに気付けるようにするため）。"""
 
 # repository.py
 class Repository:
@@ -445,15 +447,20 @@ def export_csv(rows: list[RecordRow], out_path: Path) -> int:
     UTF-8 BOM 付き（表計算ソフトで文字化けしないため）。出力先が既存の場合は上書きする。"""
 ```
 
+CSV の出力（`export` と `ranking` で共通。`export/csv_safe.py`）:
+
+- 数式の誤実行の防止: 部族名・ユーザ名（他者が決める文字列）の先頭が `=`・`+`・`-`・`@`・タブ・改行の場合は、先頭に `'` を付けて出力する（`csv_safe`）。悪意のある名前（例: `=HYPERLINK(...)`）を表計算ソフトが数式として実行しないため。数値と、値なしを示す「-」には適用しない。Excel では、先頭の `'` がそのまま表示される（安全を優先する）。
+- 書き込みの安全化: 同じフォルダの一時ファイルに書き、成功したときだけ出力先と置き換える（`atomic_csv`）。書き込みの途中で失敗しても、既存のファイルは壊れず、一時ファイルも残らない。出力先のファイルの権限は、一時ファイルと同じ（所有者のみ読み書き）になる。
+
 ### 5.8 `cli.py`
 
 | コマンド | 主なオプション | 終了コード |
 |---|---|---|
 | `liver-stats import` | `--dir`（必須）`--tribe`（必須）`--date`（任意、YYYY-MM-DD）`--on-conflict {skip,overwrite}`（既定 skip） | 0: 成功（失敗画像・カード未検出の画像があっても0。結果に表示。すべての画像で読み取れなかった場合は警告を表示）/ 1: 入力エラー / 2: 想定外エラー |
 | `liver-stats export` | `--tribe`（必須）`--date` または `--from`/`--to`、`--member`（任意）、`--out`（必須） | 同上 |
-| `liver-stats ranking` | `--tribe`（必須）`--date`（任意、YYYY-MM-DD。今回の記録日。省略時は部族の最新の記録日）、`--out`（必須） | 0: 成功（要確認の警告・前回なしがあっても0。結果に表示）/ 1: 入力エラー（未登録の部族、記録が無い、指定した記録日にデータが無い、`--out` の親フォルダが無い）/ 2: 想定外エラー |
+| `liver-stats ranking` | `--tribe`（必須）`--date`（任意、YYYY-MM-DD。今回の記録日。省略時は部族の最新の記録日）、`--out`（必須） | 0: 成功（要確認の警告・前回なしがあっても0。結果に表示）/ 1: 入力エラー（DB ファイルが無い、未登録の部族、記録が無い、指定した記録日にデータが無い、`--out` の親フォルダが無い）/ 2: 想定外エラー |
 
-- `--date` と `--from`/`--to` の同時指定、`--out` の親ディレクトリが存在しない場合は入力エラーとする。
+- `--date` と `--from`/`--to` の同時指定、`--out` の親ディレクトリが存在しない場合は入力エラーとする。`export`・`ranking` は、DB ファイルが存在しない場合も入力エラーとし、DB やフォルダを作らない（`import` は従来どおり作成する）。
 - `ranking` の `--date` は、`export --date`（その日の全メンバーを出力）と意味が少し異なり、「今回の記録日」を指す（PRD 6 章）。
 - 出力結果の形式は PRD 6章の例に従う。
 
@@ -514,6 +521,7 @@ def run_ranking(tribe: str, on_date: date | None, out_path: Path, cfg: Config) -
 - 1 行目: 期間と「各種ランキング」の 1 セルのみ（例: `2026/11/16〜2026/11/23 各種ランキング`。前回が無い場合は `（前回なし）〜2026/11/23 各種ランキング`）。CSV では結合セルを表現できないため、1 つのセルに入れる
 - 2 行目: 見出し 12 列 `順位,ユーザー名,最高レベル,順位,ユーザー名,名誉,順位,ユーザー名,レベル上昇値,順位,ユーザー名,名誉上昇値`
 - 3 行目以降: 4 つのランキングを横に並べる。`rank` が `None` なら空欄、`value` が `None` なら `-`。4 つのリストの長さが異なる場合は、空欄で揃える
+- ユーザ名は `csv_safe` を通す（5.7）。値の「-」と数値には適用しない
 - 日付は `YYYY/MM/DD`（運営者のイメージ図に合わせる。既存の CSV 出力の `YYYY-MM-DD` とは異なる）、見出しは「ユーザー名」（既存の CSV の「ユーザ名」とは異なる。PRD のフィードバック No.6）
 
 **エラーと警告**
