@@ -177,7 +177,7 @@ CREATE INDEX idx_member_records_date ON member_records(record_date);
 ```
 
 - 重複防止（US-04）は `UNIQUE (member_id, record_date)` と `source_images.sha256` で担保する。
-- 登録後の訂正・別名登録は運営者が DB を直接書き換える（PRD 4.3 / 4.4）。`needs_review = 1` の行を SQL で抽出できる。
+- 登録後の訂正・別名登録は運営者が DB を直接書き換える（PRD 4.3 / 4.4）。`needs_review = 1` の行は SQL で抽出できる。`member_records` にはユーザ名の列が無い（名前は `members.name`）ため、`members`・`tribes` と結合して抽出する。確認・訂正の SQL 例は `docs/setup.md` の「データの確認・訂正」に記載する。
 - `review_reason` は複数ある場合カンマ区切りとする。
 
 ### 4.3 データ保全（バックアップ）（PRD 5 章「データ保全」への対応）

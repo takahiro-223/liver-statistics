@@ -61,11 +61,20 @@ cp .env.example .env        # 必要に応じて編集
 
 ### 3. 「要確認」の訂正
 
-信頼度が低い・数値を解釈できない・画像間で値が食い違う、といった行には「要確認」が付きます。SQLite で抽出し、必要なら直接書き換えて訂正してください。
+信頼度が低い・数値を解釈できない・画像間で値が食い違う、といった行には「要確認」が付きます。`member_records` にはユーザ名の列が無い（名前は `members` テーブル）ので、`members` と `tribes` を結合して抽出し、必要なら直接書き換えて訂正してください。
 
 ```bash
-sqlite3 data/liver_statistics.db "SELECT * FROM member_records WHERE needs_review = 1"
+sqlite3 -header -column data/liver_statistics.db "
+SELECT r.id AS record_id, t.name AS tribe, r.record_date, m.id AS member_id, m.name,
+       r.level, r.honor, r.review_reason
+FROM member_records r
+JOIN members m ON m.id = r.member_id
+JOIN tribes t  ON t.id = m.tribe_id
+WHERE r.needs_review = 1
+ORDER BY r.record_date, m.name;"
 ```
+
+名前・数値の訂正や、「確認済み」にする手順（SQL の例）は [docs/setup.md](docs/setup.md#データの確認訂正) にあります。訂正の前後にはバックアップを取ってください。
 
 名前が既存メンバーに似ている場合（類似度が閾値以上、または3文字以上で1文字違い）は新規メンバーとして登録されたうえで、要確認（`similar_to:<既存名>`）になります。
 
