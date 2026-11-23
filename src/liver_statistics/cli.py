@@ -1,4 +1,4 @@
-"""CLI: liver-stats import / export。"""
+"""CLI: liver-stats import / export / ranking。"""
 from __future__ import annotations
 
 import argparse
@@ -14,6 +14,7 @@ from .errors import InputError, LiverStatisticsError
 from .export.csv_exporter import export_csv
 from .normalize import normalize_name
 from .pipeline import run_import
+from .ranking.service import run_ranking
 
 
 def _date(value: str) -> date:
@@ -41,6 +42,11 @@ def build_parser() -> argparse.ArgumentParser:
     exp.add_argument("--to", dest="date_to", type=_date, help="期間の終了日")
     exp.add_argument("--member", help="メンバー名（任意）")
     exp.add_argument("--out", required=True, type=Path, help="出力先CSVパス")
+
+    rank = sub.add_parser("ranking", help="レベル・名誉と前回からの上昇幅のランキング表をCSVに出力する")
+    rank.add_argument("--tribe", required=True, help="部族名")
+    rank.add_argument("--date", type=_date, help="今回の記録日 (YYYY-MM-DD)。未指定なら部族の最新の記録日")
+    rank.add_argument("--out", required=True, type=Path, help="出力先CSVパス")
     return parser
 
 
@@ -85,12 +91,28 @@ def _cmd_export(args: argparse.Namespace, cfg: Config) -> int:
     return 0
 
 
+def _cmd_ranking(args: argparse.Namespace, cfg: Config) -> int:
+    if not args.out.parent.is_dir():
+        raise InputError(f"出力先フォルダが存在しません: {args.out.parent}")
+    s = run_ranking(args.tribe, args.date, args.out, cfg)
+    previous = "なし（上昇値は全員「-」）" if s.previous_date is None else str(s.previous_date)
+    print(f"部族: {args.tribe} / 今回: {s.current_date} / 前回: {previous}")
+    print(f"ランキング: {s.members}人 → {args.out}")
+    if s.no_previous:
+        print(f"前回なし: {len(s.no_previous)}人（{', '.join(s.no_previous)}）")
+    if s.needs_review:
+        print(f"警告: 要確認の記録が残っています: {len(s.needs_review)}件（{', '.join(s.needs_review)}）。"
+              "登録内容を確認・訂正してから作り直すことを推奨します")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         cfg = load_config(for_ocr=args.command == "import")  # 設定エラーは引数の検証より先に報告する
         logging.basicConfig(level=cfg.log_level, format="%(levelname)s %(message)s")
-        return _cmd_import(args, cfg) if args.command == "import" else _cmd_export(args, cfg)
+        commands = {"import": _cmd_import, "export": _cmd_export, "ranking": _cmd_ranking}
+        return commands[args.command](args, cfg)
     except LiverStatisticsError as exc:
         print(f"エラー: {exc}", file=sys.stderr)
         return 1

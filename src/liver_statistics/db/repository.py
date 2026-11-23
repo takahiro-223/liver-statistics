@@ -31,6 +31,18 @@ class RecordRow:
     needs_review: bool
 
 
+@dataclass(frozen=True)
+class MemberSnapshot:
+    """指定した記録日の、1 メンバーの記録（ランキング作成用）。"""
+
+    member_id: int
+    name: str            # 表示名（members.name）
+    name_key: str        # 正規化キー（同順位の並び替えに使う）
+    level: int | None    # 読み取れなかった場合は None
+    honor: int | None
+    needs_review: bool
+
+
 class Repository:
     """コミット・ロールバックは呼び出し側（pipeline）が管理する。"""
 
@@ -146,4 +158,42 @@ class Repository:
         return [
             RecordRow(r["tribe"], r["record_date"], r["member"], r["level"], r["honor"], bool(r["needs_review"]))
             for r in self._conn.execute(sql, params).fetchall()
+        ]
+
+    # --- ランキング作成用（読み取り専用） ---
+    def _record_date(self, sql_tail: str, params: tuple) -> date | None:
+        row = self._conn.execute(
+            "SELECT MAX(r.record_date) AS d FROM member_records r JOIN members m ON m.id = r.member_id "
+            "WHERE m.tribe_id = ?" + sql_tail,
+            params,
+        ).fetchone()
+        return date.fromisoformat(row["d"]) if row["d"] else None
+
+    def latest_record_date(self, tribe_id: int) -> date | None:
+        """部族の最新の記録日。記録が 1 件も無ければ None。"""
+        return self._record_date("", (tribe_id,))
+
+    def previous_record_date(self, tribe_id: int, before: date) -> date | None:
+        """before より前の最新の記録日。無ければ None。"""
+        return self._record_date(" AND r.record_date < ?", (tribe_id, before.isoformat()))
+
+    def has_records_on(self, tribe_id: int, on: date) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM member_records r JOIN members m ON m.id = r.member_id "
+            "WHERE m.tribe_id = ? AND r.record_date = ? LIMIT 1",
+            (tribe_id, on.isoformat()),
+        ).fetchone()
+        return row is not None
+
+    def list_snapshots(self, tribe_id: int, on: date) -> list[MemberSnapshot]:
+        """指定した記録日の、部族の全メンバーの記録。"""
+        rows = self._conn.execute(
+            "SELECT m.id AS member_id, m.name, m.name_key, r.level, r.honor, r.needs_review "
+            "FROM member_records r JOIN members m ON m.id = r.member_id "
+            "WHERE m.tribe_id = ? AND r.record_date = ? ORDER BY m.name_key",
+            (tribe_id, on.isoformat()),
+        ).fetchall()
+        return [
+            MemberSnapshot(r["member_id"], r["name"], r["name_key"], r["level"], r["honor"], bool(r["needs_review"]))
+            for r in rows
         ]

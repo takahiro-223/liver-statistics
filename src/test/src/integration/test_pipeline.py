@@ -144,3 +144,21 @@ def test_image_without_cards_reported_others_imported(cfg, shots):
     cv2.imwrite(str(shots / "blank.png"), np.full((600, 300, 3), 200, np.uint8))
     s = run_import(shots, "TEST", date(2026, 11, 22), "skip", cfg)
     assert s.images_no_cards == ["blank.png"] and s.images_failed == [] and s.inserted == 4
+
+
+def test_import_then_ranking(cfg, shots, tmp_path, monkeypatch):
+    """取り込み（2 つの記録日）→ ランキング作成の一連の流れ。同じ画像なので上昇値は全員 0。"""
+    run_import(shots, "TEST", date(2026, 11, 22), "skip", cfg)
+    run_import(shots, "TEST", date(2026, 11, 29), "skip", cfg)
+    monkeypatch.setenv("DB_PATH", str(cfg.db_path))
+    out = tmp_path / "ranking.csv"
+    assert main(["ranking", "--tribe", "TEST", "--out", str(out)]) == 0
+    rows = [r.split(",") for r in out.read_text(encoding="utf-8-sig").splitlines()]
+    assert rows[0][0] == "2026/11/22〜2026/11/29 各種ランキング"
+    data = rows[2:]
+    assert len(data) == len(EXPECTED)
+    # 最高レベル・名誉の列は、期待値（レベル・名誉）の降順
+    assert [int(r[2]) for r in data] == sorted((v[0] for v in EXPECTED.values()), reverse=True)
+    assert [int(r[5]) for r in data] == sorted((v[1] for v in EXPECTED.values()), reverse=True)
+    # 同じ画像を 2 つの記録日に登録したので、上昇値は全員 0 で、同順位（1 位）
+    assert all(r[6] == "1" and r[8] == "0" and r[9] == "1" and r[11] == "0" for r in data)

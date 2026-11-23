@@ -39,6 +39,9 @@ cp .env.example .env     # 必要に応じて編集
 # 日付フォルダ配下のスクリーンショットを読み取り、登録する
 .venv/bin/liver-stats import --dir ./shots/2026-11-22 --tribe ABC
 
+# ランキング表（最新の記録日と、その前回の記録日の比較）。確認・訂正の後に実行する
+.venv/bin/liver-stats ranking --tribe ABC --out ranking.csv
+
 # CSV 出力
 .venv/bin/liver-stats export --tribe ABC --date 2026-11-22 --out members.csv
 .venv/bin/liver-stats export --tribe ABC --member alice --from 2026-10-01 --to 2026-11-30 --out history.csv
