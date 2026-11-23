@@ -24,13 +24,13 @@ def test_existing():
 
 def test_similar_new():
     repo = FakeRepo({"zedknight": (1, "ZedKnight")})
-    m = resolve_member(repo, 1, "ZedKnightZ", 0.8, 3)
+    m = resolve_member(repo, 1, "ZedKnightt", 0.8, 3)
     assert m.member_id is None and m.similar_to == "ZedKnight"
 
 
 def test_dissimilar_new():
     repo = FakeRepo({"alice": (1, "alice")})
-    m = resolve_member(repo, 1, "りの", 0.8, 3)
+    m = resolve_member(repo, 1, "ももか", 0.8, 3)
     assert m.member_id is None and m.similar_to is None
 
 

@@ -1,3 +1,4 @@
+import csv
 import shutil
 import sqlite3
 from datetime import date
@@ -9,14 +10,23 @@ from liver_statistics.cli import main
 from liver_statistics.db.connection import connect
 from liver_statistics.pipeline import run_import
 
-pytestmark = pytest.mark.skipif(not SAMPLE.exists(), reason="サンプル画像が無い")
+# サンプル画像と期待値（メンバー名を含むため git 管理外。docs/sample/ に手元で置く）が無ければスキップする
+EXPECTED_CSV = SAMPLE.with_name("BASE_INF.expected.csv")  # ヘッダー: ユーザ名,レベル,名誉
+pytestmark = pytest.mark.skipif(
+    not (SAMPLE.exists() and EXPECTED_CSV.exists()), reason="サンプル画像または期待値 CSV が無い（git 管理外）"
+)
 
-EXPECTED = {
-    "ミケル": (1633, 398125),
-    "Henryへんりー": (2881, 962013),
-    "alice": (2813, 1408565),
-    "りの": (2643, 1065504),
-}
+
+def _load_expected() -> dict[str, tuple[int, int]]:
+    if not EXPECTED_CSV.exists():
+        return {}
+    with EXPECTED_CSV.open(encoding="utf-8-sig", newline="") as f:
+        return {r["ユーザ名"]: (int(r["レベル"]), int(r["名誉"])) for r in csv.DictReader(f)}
+
+
+EXPECTED = _load_expected()
+# 大文字小文字を区別しない検索・類似名のテストに使う、ASCII の名前
+NAME = next((n for n in EXPECTED if n.isascii()), "")
 
 
 @pytest.fixture
@@ -71,12 +81,13 @@ def test_similar_name_flagged(cfg, shots):
     conn = connect(cfg.db_path)
     with conn:
         conn.execute("INSERT INTO tribes (name) VALUES ('TEST')")
-        conn.execute("INSERT INTO members (tribe_id, name, name_key) VALUES (1, 'alicen', 'alicen')")
+        similar = f"{NAME}n"
+        conn.execute("INSERT INTO members (tribe_id, name, name_key) VALUES (1, ?, ?)", (similar, similar.casefold()))
     conn.close()
     s = run_import(shots, "TEST", date(2026, 11, 22), "skip", cfg)
-    assert s.inserted == 4 and "alice" in s.needs_review
-    reason = [r for r in rows(cfg) if r[0] == "alice"][0][4]
-    assert "similar_to:alicen" in reason
+    assert s.inserted == 4 and NAME in s.needs_review
+    reason = [r for r in rows(cfg) if r[0] == NAME][0][4]
+    assert f"similar_to:{NAME}n" in reason
 
 
 def test_rollback_on_failure(cfg, shots, monkeypatch):
@@ -107,10 +118,10 @@ def test_export_cli(cfg, shots, tmp_path, monkeypatch):
     assert main(["export", "--tribe", "TEST", "--date", "2026-11-22", "--out", str(out)]) == 0
     assert len(out.read_text(encoding="utf-8-sig").splitlines()) == 1 + 4
 
-    assert main(["export", "--tribe", "TEST", "--member", "ALICE", "--from", "2026-11-01",
+    assert main(["export", "--tribe", "TEST", "--member", NAME.upper(), "--from", "2026-11-01",
                  "--to", "2026-11-30", "--out", str(out)]) == 0
     lines = out.read_text(encoding="utf-8-sig").splitlines()
-    assert len(lines) == 1 + 2 and all("alice" in l for l in lines[1:])
+    assert len(lines) == 1 + 2 and all(NAME in l for l in lines[1:])
 
     assert main(["export", "--tribe", "NONE", "--out", str(out)]) == 1
 

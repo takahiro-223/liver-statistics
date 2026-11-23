@@ -20,10 +20,10 @@ def test_report_rate():
 
 def test_evaluate_counts_items(cfg, tmp_path, monkeypatch):
     (tmp_path / "a.png").write_bytes(b"x")
-    monkeypatch.setattr(accuracy, "read_cards", lambda *a: [card("alice", 10, 200), card("りの", 5, 999)])
+    monkeypatch.setattr(accuracy, "read_cards", lambda *a: [card("alice", 10, 200), card("ももか", 5, 999)])
     truth = {
         "alice": {"ユーザ名": "alice", "レベル": "10", "名誉": "200"},
-        "りの": {"ユーザ名": "りの", "レベル": "5", "名誉": "1,000"},
+        "ももか": {"ユーザ名": "ももか", "レベル": "5", "名誉": "1,000"},
         "ぽこた": {"ユーザ名": "ぽこた", "レベル": "1", "名誉": "1"},
     }
     report = evaluate(tmp_path, truth, engine=None, cfg=cfg)

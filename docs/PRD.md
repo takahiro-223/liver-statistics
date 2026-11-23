@@ -142,7 +142,7 @@ liver-stats export --tribe ABC --member alice --from 2026-10-01 --to 2026-11-22 
 部族: ABC / 記録日: 2026-11-22
 画像: 10枚（成功 10 / 失敗 0）
 登録: 39件（新規 37 / 上書き 0 / スキップ 2）
-要確認: 3件（りの, ZedKnight, ...）
+要確認: 3件（ももか, ZedKnight, ...）
 ```
 
 ### CSVの出力項目（仮）
